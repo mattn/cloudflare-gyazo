@@ -1,3 +1,5 @@
+'use strict';
+
 export interface Env {
     gyazo: R2Bucket;
 }
