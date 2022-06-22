@@ -1,0 +1,7 @@
+name = "gyazo"
+main = "src/index.ts"
+compatibility_date = "2022-06-22"
+
+[[r2_buckets]]
+binding = 'gyazo'
+bucket_name = 'gyazo'
