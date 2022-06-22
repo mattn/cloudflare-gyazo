@@ -2,6 +2,33 @@ export interface Env {
     gyazo: R2Bucket;
 }
 
+const page = `
+<!doctype html>
+<link href="//fonts.googleapis.com/css?family=Sigmar+One:regular&v1" rel="stylesheet" type="text/css" >
+<meta charset="utf-8" />
+<title>Cloudflare Gyazo</title>
+<style>
+body {
+  font-size: 40px;
+  text-align: center;
+}
+h1,h2,h3 {
+  font-family: 'Sigmar One', serif;
+  font-style: normal;
+  text-shadow: none;
+  text-decoration: none;
+  text-transform: none;
+  letter-spacing: -0.05em;
+  word-spacing: 0em;
+  line-height: 1.15;
+}
+</style>
+<body>
+	<h1>Cloudflare Gyazo</h1>
+	2022 (C) <a href="http://mattn.kaoriya.net/">mattn</a>, code is <a href="https://github.com/mattn/cloudflare-gyazo">here</a>
+</body>
+`
+
 function parseRange(
     encoded: string | null,
 ): undefined | { offset: number; length: number } {
@@ -48,7 +75,7 @@ export default {
 
         if (request.method === "GET" || request.method === "HEAD") {
             if (objectName === "") {
-                return new Response("Hello", {
+                return new Response(page, {
                     headers: {
                         "content-type": "text/html; charset=UTF-8",
                     },
