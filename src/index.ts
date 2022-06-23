@@ -82,108 +82,134 @@ function basicAuthentication(request: Request) {
   }
 }
 
+async function topPage(request: Request, env: Env) {
+  return new Response(page, {
+    headers: {
+      'content-type': 'text/html; charset=UTF-8',
+    },
+  });
+}
+
+async function doGetImage(request: Request, env: Env) {
+  const { pathname } = new URL(request.url);
+  const objectName = pathname.slice(1, undefined);
+  const range = parseRange(request.headers.get('range'));
+  const object = await env.gyazo.get(objectName, {
+    range,
+    onlyIf: request.headers,
+  });
+
+  if (object === null) {
+    return objectNotFound(objectName);
+  }
+
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set('etag', object.httpEtag);
+  const status = (<R2ObjectBody>object).body ? (range ? 206 : 200) : 304;
+  return new Response((<R2ObjectBody>object).body, {
+    headers,
+    status,
+  });
+}
+
+async function doHeadImage(request: Request, env: Env) {
+  const { pathname } = new URL(request.url);
+  const objectName = pathname.slice(1, undefined);
+  const object = await env.gyazo.head(objectName);
+  if (object === null) {
+    return objectNotFound(objectName);
+  }
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set('etag', object.httpEtag);
+  return new Response(null, {
+    headers,
+  });
+}
+
+async function doPostImage(request: Request, env: Env) {
+  const { hostname } = new URL(request.url);
+  const formData = await request.formData()
+  const file = formData.get('imagedata');
+  const contents = await (<Blob>file).arrayBuffer();
+  const bytes = new Uint8Array(await crypto.subtle.digest(
+    {
+      name: 'SHA-1',
+    },
+    contents,
+  ));
+  let hash = '';
+  for (let i = 0; i < 8; i++) {
+    let value = bytes[i].toString(16);
+    hash += (value.length === 1 ? '0' + value : value);
+  }
+  const name = hash + '.png';
+  const headers = new Headers();
+  headers.set('content-type', 'image/png');
+  const object = await env.gyazo.put(name, contents, {
+    httpMetadata: headers,
+  })
+  return new Response('https://' + hostname + '/' + name, {
+    headers: {
+      'etag': object.httpEtag,
+    }
+  })
+}
+
+function notAuthenticated(request: Request, env: Env) {
+  return new Response(
+    'Not Authenticated',
+    {
+      status: 401,
+      headers: {
+        'content-type': 'text/plain; charset=UTF-8',
+        'accept-charset': 'utf-8',
+        'www-authenticate': 'Basic realm="Enter username and password.'
+      },
+    },
+  );
+}
+
+function unsupportedMethod(request: Request, env: Env) {
+  return new Response(`Unsupported method`, {
+    status: 400,
+  });
+}
+
 export default {
   async fetch(
     request: Request,
     env: Env,
     ctx: ExecutionContext
   ): Promise<Response> {
-    const { protocol, hostname, pathname } = new URL(request.url);
-    const objectName = pathname.slice(1, undefined);
+    const { protocol, pathname } = new URL(request.url);
 
     if ('https:' !== protocol || 'https' !== request.headers.get('x-forwarded-proto')) {
       throw new Error('Please use a HTTPS connection.')
     }
 
-    console.log(`${request.method} object ${objectName}: ${request.url}`);
+    console.log(`${request.method}: ${request.url}`);
 
-    if (request.method === 'GET' || request.method === 'HEAD') {
-      if (objectName === '') {
-        return new Response(page, {
-          headers: {
-            'content-type': 'text/html; charset=UTF-8',
-          },
-        });
-      }
-
-      if (request.method === 'GET') {
-        const range = parseRange(request.headers.get('range'));
-        const object = await env.gyazo.get(objectName, {
-          range,
-          onlyIf: request.headers,
-        });
-
-        if (object === null) {
-          return objectNotFound(objectName);
-        }
-
-        const headers = new Headers();
-        object.writeHttpMetadata(headers);
-        headers.set('etag', object.httpEtag);
-        const status = (<R2ObjectBody>object).body ? (range ? 206 : 200) : 304;
-        return new Response((<R2ObjectBody>object).body, {
-          headers,
-          status,
-        });
-      }
-
-      const object = await env.gyazo.head(objectName);
-      if (object === null) {
-        return objectNotFound(objectName);
-      }
-
-      const headers = new Headers();
-      object.writeHttpMetadata(headers);
-      headers.set('etag', object.httpEtag);
-      return new Response(null, {
-        headers,
-      });
-    } else if (request.method === 'POST') {
+    if (request.method === 'GET' && pathname === '/') {
+      return topPage(request, env);
+    }
+    if (request.method === 'GET') {
+      return doGetImage(request, env);
+    }
+    if (request.method === 'HEAD') {
+      return doHeadImage(request, env);
+    }
+    if (request.method === 'POST') {
       if (request.headers.has('Authorization')) {
         const { username, password } = basicAuthentication(request)
         if (username === env.GYAZO_USERNAME && password === env.GYAZO_PASSWORD) {
-          const formData = await request.formData()
-          const file = formData.get('imagedata');
-          const contents = await (<Blob>file).arrayBuffer();
-          const bytes = new Uint8Array(await crypto.subtle.digest(
-            {
-              name: 'SHA-1',
-            },
-            contents,
-          ));
-          let hash = '';
-          for (let i = 0; i < 8; i++) {
-            let value = bytes[i].toString(16);
-            hash += (value.length === 1 ? '0' + value : value);
-          }
-          const name = hash + '.png';
-          const headers = new Headers();
-          headers.set('content-type', 'image/png');
-          const object = await env.gyazo.put(name, contents, {
-            httpMetadata: headers,
-          })
-          return new Response('https://' + hostname + '/' + name, {
-            headers: {
-              'etag': object.httpEtag,
-            }
-          })
+          return doPostImage(request, env);
         }
       }
-      return new Response(
-        'Not Authenticated',
-        {
-          status: 401,
-          headers: {
-            'content-type': 'text/plain; charset=UTF-8',
-            'accept-charset': 'utf-8',
-            'www-authenticate': 'Basic realm="Enter username and password.'
-          },
-        },
-      );
+      return notAuthenticated(request, env);
     }
 
-    return new Response(`Unsupported method`, {
-      status: 400,
-    });
+    return unsupportedMethod(request, env);
   },
 };
