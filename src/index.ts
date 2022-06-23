@@ -2,8 +2,8 @@
 
 export interface Env {
   gyazo: R2Bucket;
-  GYAGO_USERNAME: string;
-  GYAGO_PASSWORD: string;
+  GYAZO_USERNAME: string;
+  GYAZO_PASSWORD: string;
 }
 
 const page = `
@@ -141,7 +141,7 @@ export default {
     } else if (request.method === 'POST') {
       if (request.headers.has('Authorization')) {
         const { username, password } = basicAuthentication(request)
-        if (username === env.GYAGO_USERNAME && password === env.GYAGO_PASSWORD) {
+        if (username === env.GYAZO_USERNAME && password === env.GYAZO_PASSWORD) {
           const formData = await request.formData()
           const file = formData.get('imagedata');
           const contents = await (<Blob>file).arrayBuffer();
