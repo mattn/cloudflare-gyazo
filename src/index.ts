@@ -6,7 +6,7 @@ export interface Env {
 
 const page = `
 <!doctype html>
-<link href="//fonts.googleapis.com/css?family=Sigmar+One:regular&v1" rel="stylesheet" type="text/css" >
+<link href="https://fonts.bunny.net/css?family=sigmar-one:400" rel="stylesheet" />
 <meta charset="utf-8" />
 <title>Cloudflare Gyazo</title>
 <style>
