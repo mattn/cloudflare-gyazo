@@ -129,6 +129,14 @@ async function doHeadImage(request: Request, env: Env) {
 }
 
 async function doPostImage(request: Request, env: Env) {
+  if (!request.headers.has('authorization')) {
+    return notAuthenticated(request, env);
+  }
+  const { username, password } = basicAuthentication(request)
+  if (username !== env.GYAZO_USERNAME || password !== env.GYAZO_PASSWORD) {
+    return notAuthenticated(request, env);
+  }
+
   const { hostname } = new URL(request.url);
   const formData = await request.formData()
   const file = formData.get('imagedata');
@@ -191,23 +199,17 @@ export default {
 
     console.log(`${request.method}: ${request.url}`);
 
-    if (request.method === 'GET' && pathname === '/') {
-      return topPage(request, env);
-    }
     if (request.method === 'GET') {
+      if (pathname === '/') {
+        return topPage(request, env);
+      }
       return doGetImage(request, env);
     }
     if (request.method === 'HEAD') {
       return doHeadImage(request, env);
     }
     if (request.method === 'POST') {
-      if (request.headers.has('Authorization')) {
-        const { username, password } = basicAuthentication(request)
-        if (username === env.GYAZO_USERNAME && password === env.GYAZO_PASSWORD) {
-          return doPostImage(request, env);
-        }
-      }
-      return notAuthenticated(request, env);
+      return doPostImage(request, env);
     }
 
     return unsupportedMethod(request, env);
