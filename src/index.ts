@@ -2,6 +2,8 @@
 
 export interface Env {
   gyazo: R2Bucket;
+  GYAGO_USERNAME: string;
+  GYAGO_PASSWORD: string;
 }
 
 const page = `
@@ -38,10 +40,10 @@ function parseRange(
     return;
   }
 
-  const parts = encoded.split("bytes=")[1]?.split("-") ?? [];
+  const parts = encoded.split('bytes=')[1]?.split('-') ?? [];
   if (parts.length !== 2) {
     throw new Error(
-      "Not supported to skip specifying the beginning/ending byte at this time",
+      'Not supported to skip specifying the beginning/ending byte at this time',
     );
   }
 
@@ -57,12 +59,28 @@ function objectNotFound(objectName: string): Response {
     {
       status: 404,
       headers: {
-        "content-type": "text/html; charset=UTF-8",
+        'content-type': 'text/html; charset=UTF-8',
       },
     },
   );
 }
 
+function basicAuthentication(request: Request) {
+  const authorization = request.headers.get('Authorization')!;
+  const [scheme, encoded] = authorization.split(' ');
+  if (!encoded || scheme !== 'Basic') {
+    throw new Error('Malformed authorization header.')
+  }
+  const decoded = atob(encoded).normalize()
+  const index = decoded.indexOf(':')
+  if (index === -1 || /[\0-\x1F\x7F]/.test(decoded)) {
+    throw new Error('Invalid authorization value.')
+  }
+  return {
+    username: decoded.substring(0, index),
+    password: decoded.substring(index + 1),
+  }
+}
 
 export default {
   async fetch(
@@ -70,22 +88,26 @@ export default {
     env: Env,
     ctx: ExecutionContext
   ): Promise<Response> {
-    const url = new URL(request.url);
-    const objectName = url.pathname.slice(1, undefined);
+    const { protocol, hostname, pathname } = new URL(request.url);
+    const objectName = pathname.slice(1, undefined);
+
+    if ('https:' !== protocol || 'https' !== request.headers.get('x-forwarded-proto')) {
+      throw new Error('Please use a HTTPS connection.')
+    }
 
     console.log(`${request.method} object ${objectName}: ${request.url}`);
 
-    if (request.method === "GET" || request.method === "HEAD") {
-      if (objectName === "") {
+    if (request.method === 'GET' || request.method === 'HEAD') {
+      if (objectName === '') {
         return new Response(page, {
           headers: {
-            "content-type": "text/html; charset=UTF-8",
+            'content-type': 'text/html; charset=UTF-8',
           },
         });
       }
 
-      if (request.method === "GET") {
-        const range = parseRange(request.headers.get("range"));
+      if (request.method === 'GET') {
+        const range = parseRange(request.headers.get('range'));
         const object = await env.gyazo.get(objectName, {
           range,
           onlyIf: request.headers,
@@ -97,7 +119,7 @@ export default {
 
         const headers = new Headers();
         object.writeHttpMetadata(headers);
-        headers.set("etag", object.httpEtag);
+        headers.set('etag', object.httpEtag);
         const status = (<R2ObjectBody>object).body ? (range ? 206 : 200) : 304;
         return new Response((<R2ObjectBody>object).body, {
           headers,
@@ -112,10 +134,52 @@ export default {
 
       const headers = new Headers();
       object.writeHttpMetadata(headers);
-      headers.set("etag", object.httpEtag);
+      headers.set('etag', object.httpEtag);
       return new Response(null, {
         headers,
       });
+    } else if (request.method === 'POST') {
+      if (request.headers.has('Authorization')) {
+        const { username, password } = basicAuthentication(request)
+        if (username === env.GYAGO_USERNAME && password === env.GYAGO_PASSWORD) {
+          const formData = await request.formData()
+          const file = formData.get('imagedata');
+          const contents = await (<Blob>file).arrayBuffer();
+          const bytes = new Uint8Array(await crypto.subtle.digest(
+            {
+              name: 'SHA-1',
+            },
+            contents,
+          ));
+          let hash = '';
+          for (let i = 0; i < 8; i++) {
+            let value = bytes[i].toString(16);
+            hash += (value.length === 1 ? '0' + value : value);
+          }
+          const name = hash + '.png';
+          const headers = new Headers();
+          headers.set('content-type', 'image/png');
+          const object = await env.gyazo.put(name, contents, {
+            httpMetadata: headers,
+          })
+          return new Response('https://' + hostname + '/' + name, {
+            headers: {
+              'etag': object.httpEtag,
+            }
+          })
+        }
+      }
+      return new Response(
+        'Not Authenticated',
+        {
+          status: 401,
+          headers: {
+            'content-type': 'text/plain; charset=UTF-8',
+            'accept-charset': 'utf-8',
+            'www-authenticate': 'Basic realm="Enter username and password.'
+          },
+        },
+      );
     }
 
     return new Response(`Unsupported method`, {
